@@ -459,7 +459,7 @@ open http://localhost:8025
 
 ---
 
-## Troubleshooting
+## Частые проблемы и их решения
 
 **`Cannot connect to the Docker daemon`** — Docker Desktop не запущен. Запустить его и подождать, пока значок не станет статичным.
 
