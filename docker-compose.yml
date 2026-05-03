@@ -1,0 +1,46 @@
+services:
+
+  # PostgreSQL 17 — БД для приложения. Логин/пароль и имя БД совпадают
+  # с тем, что прописаны в src/main/resources/application.properties.
+  postgres:
+    image: postgres:17-alpine
+    container_name: otp-postgres
+    environment:
+      POSTGRES_DB: otp_service
+      POSTGRES_USER: otp_user
+      POSTGRES_PASSWORD: '1725'
+    ports:
+      - "5432:5432"
+    volumes:
+      - otp-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U otp_user -d otp_service"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # SMTP-эмулятор - принимает исходящую почту и показывает её (при желании) в веб-интерфейсе
+  # Используется как замена реальному SMTP-серверу для тестов отправки кода на email.
+  mailpit:
+    image: axllent/mailpit
+    container_name: mailpit
+    ports:
+      - "1025:1025"   # SMTP-порт
+      - "8025:8025"   # веб-интерфейс с просмотром писем
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8025"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # SMPP-эмулятор для SMS (на базе jSMPP).
+  # Слушает SMPP-протокол и принимает submit_sm от нашего OTP-сервиса
+  smpp-sim:
+    build: ./smpp-sim
+    image: my-smpp-sim
+    container_name: smpp-sim
+    ports:
+      - "2775:8056"   # пробрасываем порт с 2775 на 8056
+
+volumes:
+  otp-postgres-data:

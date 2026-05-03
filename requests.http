@@ -1,0 +1,224 @@
+### Регистрация админа
+POST http://localhost:8080/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin",
+  "role": "ADMIN"
+}
+
+### Попытка зарегистрировать второго админа
+POST http://localhost:8080/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "admin2",
+  "password": "admin2",
+  "role": "ADMIN"
+}
+
+### Регистрация обычного пользователя
+POST http://localhost:8080/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "user1",
+  "password": "qwerty",
+  "role": "USER"
+}
+
+### Логин пользователя - токен сохраняется в переменную
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "user1",
+  "password": "qwerty"
+}
+
+> {%
+client.global.set("user_token", response.body.token);
+%}
+
+### Логин админа - токен админа сохраняется отдельно
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin"
+}
+
+> {%
+client.global.set("admin_token", response.body.token);
+%}
+
+### GET /admin/users без токена (401)
+GET http://localhost:8080/api/admin/users
+
+### GET /admin/users с токеном USER (403)
+GET http://localhost:8080/api/admin/users
+Authorization: Bearer {{user_token}}
+
+### GET /admin/users с токеном ADMIN (200)
+GET http://localhost:8080/api/admin/users
+Authorization: Bearer {{admin_token}}
+
+### Генерация OTP в файл
+POST http://localhost:8080/api/otp/generate
+Authorization: Bearer {{user_token}}
+Content-Type: application/json
+
+{
+  "operationId": "op-file",
+  "channel": "file"
+}
+
+### Генерация OTP по email
+POST http://localhost:8080/api/otp/generate
+Authorization: Bearer {{user_token}}
+Content-Type: application/json
+
+{
+  "operationId": "op-email",
+  "channel": "email",
+  "destination": "alexeevAA@yandex.com"
+}
+
+### Генерация OTP по SMS (через SMPPsim)
+POST http://localhost:8080/api/otp/generate
+Authorization: Bearer {{user_token}}
+Content-Type: application/json
+
+{
+  "operationId": "op-sms",
+  "channel": "sms",
+  "destination": "79991234567"
+}
+
+### Генерация OTP в Telegram
+POST http://localhost:8080/api/otp/generate
+Authorization: Bearer {{user_token}}
+Content-Type: application/json
+
+{
+  "operationId": "op-tg",
+  "channel": "telegram",
+  "destination": "Alex"
+}
+
+### Валидация верного кода (200, valid:true) !!!ВАЖНО - необходимо Подставь код из otp-codes.log в поле "code"
+POST http://localhost:8080/api/otp/validate
+Authorization: Bearer {{user_token}}
+Content-Type: application/json
+
+{
+  "code": "482719"
+}
+
+### Валидация неверного кода (400, valid:false)
+POST http://localhost:8080/api/otp/validate
+Authorization: Bearer {{user_token}}
+Content-Type: application/json
+
+{
+  "code": "000000"
+}
+
+### Повторная валидация уже использованного (400, valid:false)
+POST http://localhost:8080/api/otp/validate
+Authorization: Bearer {{user_token}}
+Content-Type: application/json
+
+{
+  "code": "482719"
+}
+
+### Уменьшаем TTL до 60 секунд для теста шедулера
+PUT http://localhost:8080/api/admin/config
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "codeLength": 6,
+  "ttlSeconds": 60
+}
+
+### Генерируем код с коротким TTL и НЕ валидируем
+### Необходимо подождать ~90 секунд и посмотри лог приложения и таблицу otp_codes
+POST http://localhost:8080/api/otp/generate
+Authorization: Bearer {{user_token}}
+Content-Type: application/json
+
+{
+  "operationId": "op-expire",
+  "channel": "file"
+}
+
+### Возвращаем нормальный TTL
+PUT http://localhost:8080/api/admin/config
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+
+{
+  "codeLength": 6,
+  "ttlSeconds": 300
+}
+
+### Cписок пользователей (без админа)
+GET http://localhost:8080/api/admin/users
+Authorization: Bearer {{admin_token}}
+
+### Удаление пользователя (id=2 — это user1, поправь если другой)
+DELETE http://localhost:8080/api/admin/users/2
+Authorization: Bearer {{admin_token}}
+
+
+
+#  Дополнительные операции — удаление пользователей и сброс состояния
+#
+# Все приведённые ниже запросы — это удаления конкретных пользователей
+# по id через API. Подставь нужный id в URL.
+#
+# ВАЖНАЯ ИНФОРМАЦИЯ в отношении администратора!!!
+# Удалить пользователя с ролью ADMIN через API НЕЛЬЗЯ — это сделано
+# для защиты от самоуничтожения системы. Для удаления
+# админа или для полного сброса базы необходимо использовать SQL-команды,
+# приведённые в самом конце файла.
+
+### Удалить пользователя по id (любой не-админ)
+DELETE http://localhost:8080/api/admin/users/3
+Authorization: Bearer {{admin_token}}
+
+### Удалить ещё одного пользователя (пример с другим id)
+DELETE http://localhost:8080/api/admin/users/4
+Authorization: Bearer {{admin_token}}
+
+
+
+#  Сброс состояния через psql
+#
+# Эти команды НЕ являются HTTP-запросами и не запускаются через .http файл.
+# Они выполняются в обычном терминале (тестировалось на MacOS). Пишу их здесь, чтобы было удобно
+# скопировать одной строкой и сбросить БД, если хочется чистый прогон.
+#
+# Все команды требуют пароль 1725 (или пароль пользователя, если он менялся).
+#
+# 1) Полная очистка таблиц users и otp_codes (включая админа), счётчики id обнуляются:
+#    psql -h localhost -U otp_user -d otp_service -c "TRUNCATE TABLE otp_codes, users RESTART IDENTITY CASCADE;"
+#
+# 2) Удалить только админа (юзеры и их коды останутся):
+#    psql -h localhost -U otp_user -d otp_service -c "DELETE FROM users WHERE role='ADMIN';"
+#
+# 3) Удалить только OTP-коды (юзеры останутся):
+#    psql -h localhost -U otp_user -d otp_service -c "TRUNCATE TABLE otp_codes RESTART IDENTITY;"
+#
+# 4) Посмотреть всех пользователей:
+#    psql -h localhost -U otp_user -d otp_service -c "SELECT id, username, role FROM users ORDER BY id;"
+#
+# 5) Посмотреть последние OTP-коды:
+#    psql -h localhost -U otp_user -d otp_service -c "SELECT id, user_id, code, status, expires_at FROM otp_codes ORDER BY id DESC LIMIT 10;"
+#
+# Примечание: после сброса нужно заново зарегистрировать админа и пользователя
+# (запросы в начале этого файла), и заново выполнить логин — токены устареют.

@@ -1,0 +1,110 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'ru.otpservice'
+version = '1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // JDBC PostgreSQL
+    implementation 'org.postgresql:postgresql:42.7.3'
+
+    // BCrypt для хеширования паролей
+    implementation 'org.mindrot:jbcrypt:0.4'
+
+    // JWT
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+
+    // JSON
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+
+    // Email (Jakarta Mail)
+    implementation 'org.eclipse.angus:angus-mail:2.0.5'
+
+    // SMPP (SMS)
+    implementation 'org.jsmpp:jsmpp:3.0.1'
+
+    // Логирование
+    implementation 'org.slf4j:slf4j-api:2.0.13'
+    implementation 'ch.qos.logback:logback-classic:1.5.6'
+}
+
+application {
+    mainClass = 'ru.otpservice.Main'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// Поднимает Docker-контейнеры, если Docker запущен.
+//  1. Пробуем поднять весь набор (Postgres, Mailpit, SMPP).
+//  2. Если не получилось (например, 5432 занят локальным Postgres) — пробуем только Mailpit и SMPP.
+//  3. Если и это не удалось (Docker недоступен) — печатаем предупреждение и НЕ роняем сборку.
+//     Считаем, что инфраструктура (Postgres/Mailpit/SMPP) поднята вручную (в README, на шаге № 3 подробно аписан альтернативный запуск необходимых сервсиво).
+tasks.register('startInfra') {
+    group = 'docker'
+    description = 'Запускает Docker-контейнеры. Если Docker не запущен — пропускает шаг с предупреждением.'
+    def workDir = project.projectDir
+    doLast {
+        // Хелпер для запуска docker-команд через ProcessBuilder.
+        // Используем ProcessBuilder, чтобы работать на всех версиях Gradle.
+        def runDocker = { List<String> args ->
+            def proc = new ProcessBuilder(args)
+                    .directory(workDir)
+                    .inheritIO()
+                    .start()
+            return proc.waitFor()
+        }
+
+        // Пробуем поднять всё. Если 5432 занят или Docker недоступен — exitCode != 0.
+        int exitCode = runDocker(['docker', 'compose', 'up', '-d', '--wait'])
+        if (exitCode == 0) {
+            return  // успех, всё поднято
+        }
+
+        // Первая попытка не удалась — пробуем поднять только эмуляторы.
+        println ''
+        println '>>> Полный набор контейнеров не поднялся. Пробую только Mailpit и SMPP...'
+        int extCode = runDocker(['docker', 'compose', 'up', '-d', '--wait', 'mailpit', 'smpp-sim'])
+        if (extCode == 0) {
+            println '>>> Mailpit и SMPP подняты. Приложение будет использовать локальный PostgreSQL.'
+            println ''
+            return
+        }
+
+        // Если И вторая попытка упала. Скорее всего, Docker не запущен. Не роняем сборку.
+        println ''
+        println '>>> Docker недоступен или есть конфликт портов.'
+        println '>>> Считаю, что PostgreSQL, Mailpit и SMPP подняты вручную (см. README, Шаг 3-альтернатива).'
+        println '>>> Если это не так — приложение упадёт при подключении к БД/SMTP/SMPP.'
+        println ''
+    }
+}
+
+// Останавливает все контейнеры
+tasks.register('stopInfra', Exec) {
+    group = 'docker'
+    description = 'Останавливает все Docker-контейнеры эмуляторов'
+    workingDir = project.projectDir
+    commandLine 'docker', 'compose', 'down'
+}
+
+run {
+    standardInput = System.in
+    // Перед запуском приложения автоматически поднимаем контейнеры
+    dependsOn 'startInfra'
+}
